@@ -71,11 +71,11 @@ def contract_model(model, zeros_mask_dict, arch, dataset, optimizer):
     zero-coefficients, and shrinks the model by removing these channels
     and filters from the model definition, along with any related parameters.
     """
-    remove_filters(model, zeros_mask_dict, arch, dataset, optimizer)
-    remove_channels(model, zeros_mask_dict, arch, dataset, optimizer)
+    remove_filters(model, zeros_mask_dict, input_shape, optimizer)
+    remove_channels(model, zeros_mask_dict, input_shape, optimizer)
 
 
-def remove_channels(model, zeros_mask_dict, arch, dataset, optimizer):
+def remove_channels(model, zeros_mask_dict, input_shape, optimizer):
     """Contract a model by removing weight channels"""
     sgraph = _create_graph(dataset, model)
     thinning_recipe = create_thinning_recipe_channels(sgraph, model, zeros_mask_dict)
@@ -83,16 +83,16 @@ def remove_channels(model, zeros_mask_dict, arch, dataset, optimizer):
     return model
 
 
-def remove_filters(model, zeros_mask_dict, arch, dataset, optimizer):
+def remove_filters(model, zeros_mask_dict, input_shape, optimizer):
     """Contract a model by removing weight filters"""
-    sgraph = _create_graph(dataset, model)
+    sgraph = _create_graph(input_shape, model)
     thinning_recipe = create_thinning_recipe_filters(sgraph, model, zeros_mask_dict)
     apply_and_save_recipe(model, zeros_mask_dict, thinning_recipe, optimizer)
     return model
 
 
-def _create_graph(dataset, model):
-    dummy_input = distiller.get_dummy_input(dataset, distiller.model_device(model))
+def _create_graph(input_shape, model):
+    dummy_input = distiller.get_dummy_input(device=distiller.model_device(model), input_shape=input_shape)
     return SummaryGraph(model, dummy_input)
 
 
@@ -392,17 +392,21 @@ class StructureRemover(ScheduledTrainingPolicy):
     This is a wrapper class that allows us to schedule Thinning operations directly 
     from a CompressionSchedule.
     """
-    def __init__(self, thinning_func_str, arch, dataset):
+    def __init__(self, thinning_func_str, input_shape=None, dataset=None):
         self.thinning_func = globals()[thinning_func_str]
-        self.arch = arch
-        self.dataset = dataset
         self.done = False
         self.active_cb = "on_minibatch_begin"
+        if input_shape:
+            self.input_shape = tuple(input_shape)
+        elif dataset:
+            self.input_shape = tuple(distiller.apputils.classification_get_input_shape(dataset))
+        else:
+            raise ValueError("StructureRemover requires input_shape tuple or dataset name")
 
     def __apply(self, model, zeros_mask_dict, optimizer):
         if not self.done:
             # We want to execute the thinning function only once, not every invocation of on_minibatch_begin
-            self.thinning_func(model, zeros_mask_dict, self.arch, self.dataset, optimizer=optimizer)
+            self.thinning_func(model, zeros_mask_dict, self.input_shape, optimizer=optimizer)
             self.done = True
 
     def on_minibatch_begin(self, model, epoch, minibatch_id, minibatches_per_epoch, zeros_mask_dict, meta, optimizer):

@@ -87,7 +87,10 @@ class SummaryGraph(object):
             device = distiller.model_device(model_clone)
             dummy_input = distiller.convert_tensors_recursively_to(dummy_input, device=device)
             self.dummy_input = dummy_input
-            trace, _ = jit.get_trace_graph(model_clone, dummy_input, _force_outplace=True)
+            try:
+                trace, _ = jit.get_trace_graph(model_clone, dummy_input, _force_outplace=True)
+            except AttributeError:
+                trace, _ = jit._get_trace_graph(model_clone, dummy_input, _force_outplace=True)
 
             # As of PyTorch 1.3.0, ONNX trace optimization has an issue that results in incorrect scope names
             # of nodes in the trace graph.
